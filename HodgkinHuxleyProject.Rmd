@@ -9,5 +9,242 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+```{r}
+C = 1
+gna = 120
+gk = 36
+gl = 0.3 # m.mho/cm^2
+Vna = -115 # 50 # -115 # mV 
+Vk = 12 # -77 # 12 # mV
+Vl = -10.613 # -54.387 # -10.613 # mV 
+
+# HODGKIN HUXLEY INITIAL VALUES
+V = 0.01
+n = 0.3177323
+m = 0.05295508
+h = 0.5959924
+
+
+alphanFunc = function( V ){
+  0.01*(V + 10)/( exp((V + 10)/(10)) -1 ) 
+}
+betanFunc = function( V ){
+  0.125*exp( V / 80 )
+}
+alphamFunc = function( V ){
+  0.1*( V + 25 )/( exp( (V + 25)/10 ) - 1 )
+}
+betamFunc = function(V){
+  4*exp(V/18)
+}
+alphahFunc = function(V){
+  0.07*exp(V/20)
+}
+betahFunc = function(V){
+  1/( exp( (V + 30)/10 ) +1 ) 
+}
+
+fn = function(V,n,m,h){
+  alphanFunc(V)*(1 - n) - betanFunc(V)*n
+}
+fm = function(V,n,m,h){
+  alphamFunc(V)*(1 - m) - betamFunc(V)*m
+}
+fh = function(V,n,m,h){
+  alphahFunc(V)*(1 - h) - betahFunc(V)*h
+}
+Itot = function(I,V,n,m,h){
+  (-I - gk*(n**4)*( V - Vk ) - gna*(m**3)*h*(V - Vna) - gl*(V - Vl ))/C
+}
+
+f =function(I,V,n,m,h){
+  c( Itot(I,V,n,m,h), fn(V,n,m,h), fm(V,n,m,h), fh(V,n,m,h) )
+}
+HHFunction = f
+
+alpha = function(V){ # gauusian curve 
+  exp( (-(V*0.2-1)**2)*10)
+}
+
+IFFunction = function(I, V, C ){
+  # FUNCTION F FOR PERFECT INTEGRATE AND FIRE
+  I/C
+}
+
+LIFFunction = function(I, V, Vr, C, R){
+  # FUNCTION F FOR LEAKY INTEGRATE AND FIRE  
+  I/C - (V - Vr)/(R*C)
+}
+
+EIFFunction = function(I, V, Vr, C, R, delta, theta){
+  # FUNCTION F FOR Exponential INTEGRATE AND FIRE  
+  result = I/C - (V - Vr)/(R*C) + delta*exp( (V - theta)/delta )/(R*C)
+  return( min( result, 10000 ) ) # numbers would get to big and break algorithm
+}
+
+QIFFunction = function(I, V, Vr, C, R, theta){
+  # FUNCTION F FOR Quadratic INTEGRATE AND FIRE  
+  I/C + (V - Vr)*(V - theta)/(R*C)
+}
+
+aIFFunction = function(I, V, w, a, Vr, C){
+  # FUNCTION F FOR ADAPTIVE PERFECT INTEGRATE AND FIRE  
+  c( I/C - w/C, a*(V - Vr) - w )
+}
+
+aLIFFunction = function(I, V, w, a, b, Vr, C){
+  # FUNCTION F FOR LEAKY INTEGRATE AND FIRE  
+  c( I/C - w/(C), a*b*(V - Vr) - a*w )
+}
+
+aEIFFunction = function(I, V, w, a, b, Vr, C, R, delta, theta){
+  # FUNCTION F FOR Exponential INTEGRATE AND FIRE  
+  dV = I/C - (V - Vr)/(C*R) - w/(C) + delta*exp( (V - theta)/delta )/(C)
+  dV = min( dV, 10000 ) # numbers would get to big and break algorithm
+  dw =  a*b*(V - Vr) - a*w 
+  dw = min( dw, 10000 )
+  c( dV , dw )
+}
+
+aQIFFunction = function(I, V, w, a, b,Vr, C, R, theta){
+  # FUNCTION F FOR Quadratic INTEGRATE AND FIRE  
+  dV =  I/C + (V - Vr)*(V - theta)/(R*C) - w
+  dV = min( dV, 10000 ) # numbers would get to big and break algorithm
+  dw = a*b*(V - Vr) - a*w
+  dw = min( dw, 10000 )
+  c( dV , dw  )
+}
+
+
+
+```
+
+
+$$
+\begin{eqnarray*}
+I & = & C_m \dot V + \overline{g}_k n^4 (V - V_{K}) + \overline{g}_{Na} m^3 h (V - V_{Na} )  + \overline{g}_l (V - V_{l}),\\
+\dot n & = & \alpha_n (1 - n) - \beta_n n,\\
+\dot m & = & \alpha_m (1 - m) - \beta_m m,\\
+\dot h & = & \alpha_h ( 1 - h) - \beta_h h,\\
+\alpha_n & = & { 0.01(V + 10) \over e^{{V + 10 \over 10}} -1 } ,\\
+\beta_n & = & 0.125 e^{V \over 80},\\
+ \alpha_m & = & {0.1 (V + 25) \over e^{{V + 25 \over 10}} - 1  },\\
+ \beta_m & = & 4 e^{V \over 18},\\
+ \alpha_h & = & 0.07 e^{V \over 20},\\
+ \beta_h & = & {1 \over e^{ {V + 30 \over 10}} + 1},
+\end{eqnarray*}
+$$
+where $C_m$, $g_l$, $V_{Na}$, $V_{K}$, $V_{l}$, $g_{K0}$, $g'_{Na}$ are constants.
+
+
+$$
+\begin{eqnarray*}
+I & = & C_m \dot V + \overline{g}_k n^4 (V - V_{K}) + \overline{g}_{Na} m^3 h (V - V_{Na} )  + \overline{g}_l (V - V_{l}),\\
+\dot n & = & \alpha_n (1 - n) - \beta_n n,\\
+\dot m & = & \alpha_m (1 - m) - \beta_m m,\\
+\dot h & = & \alpha_h ( 1 - h) - \beta_h h
+\end{eqnarray*}
+
+$$
+$$
+
+\begin{eqnarray*}
+C_m \dot V & = I &  - \overline{g}_k n^4 (V - V_{K}) - \overline{g}_{Na} m^3 h (V - V_{Na} )  - \overline{g}_l (V - V_{l}),\\
+\dot n & = & \alpha_n (1 - n) - \beta_n n,\\
+\dot m & = & \alpha_m (1 - m) - \beta_m m,\\
+\dot h & = & \alpha_h ( 1 - h) - \beta_h h
+\end{eqnarray*}
+$$
+
+
+$$
+\begin{bmatrix}
+C_m \dot V \\
+\dot n  \\
+\dot m \\
+\dot h 
+\end{bmatrix}
+
+=
+\begin{bmatrix}
+ - \overline{g}_k n^4 (V - V_{K}) - \overline{g}_{Na} m^3 h (V - V_{Na} )  - \overline{g}_l (V - V_{l}),\\
+ \alpha_n (1 - n) - \beta_n n,\\
+ \alpha_m (1 - m) - \beta_m m,\\
+ \alpha_h ( 1 - h) - \beta_h h
+\end{bmatrix}
++
+
+\begin{bmatrix}
+ I\\
+ 0\\
+ 0\\
+ 0
+\end{bmatrix}
+d W
+$$
+
+
+
+```{r}
+I = 10
+
+Itot = function(V,n,m,h){
+  (- gk*(n**4)*( V - Vk ) - gna*(m**3)*h*(V - Vna) - gl*(V - Vl ))/C
+}
+
+f =function(V,n,m,h){
+  c( Itot(V,n,m,h), fn(V,n,m,h), fm(V,n,m,h), fh(V,n,m,h) )
+}
+HHFunction = f
+
+g = function(V, n, m, h){
+  c(-I,0,0,0)
+}
+
+
+```
+
+
+```{r}
+
+de = diffeqr::diffeq_setup()
+
+```
+
+```{r}
+u0 = c(
+V = 0.01,
+n = 0.3177323,
+m = 0.05295508,
+h = 0.5959924)
+
+tspan <- c(0.0,1.0)
+p <- c(10.0,28.0,8/3,0.1)
+prob <- de$SDEProblem(f,g,u0,tspan,p)
+sol <- de$solve(prob,saveat=0.005)
+udf <- as.data.frame(t(sapply(sol$u,identity)))
+plotly::plot_ly(udf, x = ~V1, y = ~V2, z = ~V3, type = 'scatter3d', mode = 'lines')
+
+```
+
+```{r}
+f <- function(u,p,t) {
+  du1 = p[1]*(u[2]-u[1])
+  du2 = u[1]*(p[2]-u[3]) - u[2]
+  du3 = u[1]*u[2] - p[3]*u[3]
+  return(c(du1,du2,du3))
+}
+g <- function(u,p,t) {
+  return(c(0.3*u[1],0.3*u[2],0.3*u[3]))
+}
+u0 <- c(1.0,0.0,0.0)
+tspan <- c(0.0,1.0)
+p <- c(10.0,28.0,8/3)
+prob <- solver$SDEProblem(f,g,u0,tspan,p)
+sol <- solver$solve(prob,saveat=0.005)
+udf <- as.data.frame(t(sapply(sol$u,identity)))
+plotly::plot_ly(udf, x = ~V1, y = ~V2, z = ~V3, type = 'scatter3d', mode = 'lines')
+
+```
 
 
